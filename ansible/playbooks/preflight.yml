@@ -1,0 +1,32 @@
+---
+# Connectivity / readiness sanity check before touching any node.
+# Run this first on a fresh set of VMs to confirm SSH + sudo work.
+
+- name: Preflight checks
+  hosts: k3s_cluster
+  gather_facts: true
+  become: true
+  tasks:
+    - name: Confirm SSH connectivity
+      ansible.builtin.ping:
+
+    - name: Confirm sudo/root access
+      ansible.builtin.command: whoami
+      register: whoami_out
+      changed_when: false
+
+    - name: Report identity
+      ansible.builtin.debug:
+        msg: "{{ inventory_hostname }} reachable, running as {{ whoami_out.stdout }}"
+
+    - name: Confirm OS is Ubuntu
+      ansible.builtin.assert:
+        that:
+          - ansible_facts['distribution'] == 'Ubuntu'
+        fail_msg: "{{ inventory_hostname }} is not running Ubuntu ({{ ansible_facts['distribution'] }})"
+
+    - name: Confirm architecture is arm64/aarch64
+      ansible.builtin.assert:
+        that:
+          - ansible_facts['architecture'] in ['aarch64', 'arm64']
+        fail_msg: "{{ inventory_hostname }} is not arm64 ({{ ansible_facts['architecture'] }})"

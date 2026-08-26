@@ -1,0 +1,9 @@
+---
+# Validates that all cluster nodes are Ready and core system pods are
+# healthy. This is the check that defines "milestone complete".
+
+- name: Validate cluster health
+  hosts: k3s_server
+  become: true
+  roles:
+    - validate

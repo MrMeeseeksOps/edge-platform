@@ -1,0 +1,18 @@
+# --- Secrets & generated artifacts (never commit) ---
+output/
+*.retry
+*.token
+*.pem
+*.key
+.vault_pass
+
+# --- Ansible ---
+.ansible/
+
+# --- Python / tooling ---
+__pycache__/
+*.pyc
+.venv/
+
+# --- OS cruft ---
+.DS_Store

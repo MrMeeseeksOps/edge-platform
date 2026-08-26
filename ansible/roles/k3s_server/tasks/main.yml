@@ -1,0 +1,51 @@
+---
+# Installs k3s in server (control-plane) mode. Idempotent: the installer
+# is only invoked when the binary isn't already present, and the systemd
+# tasks are naturally idempotent.
+
+- name: Check if k3s is already installed
+  ansible.builtin.stat:
+    path: /usr/local/bin/k3s
+  register: k3s_binary
+
+- name: Download k3s install script
+  ansible.builtin.get_url:
+    url: https://get.k3s.io
+    dest: /tmp/k3s-install.sh
+    mode: "0755"
+  when: not k3s_binary.stat.exists
+
+- name: Run k3s install script in server mode
+  ansible.builtin.command: /tmp/k3s-install.sh
+  environment:
+    INSTALL_K3S_CHANNEL: "{{ k3s_channel }}"
+    INSTALL_K3S_VERSION: "{{ k3s_version }}"
+    INSTALL_K3S_EXEC: "server --disable={{ k3s_server_disable | join(',') }} --cluster-cidr={{ k3s_cluster_cidr }} --service-cidr={{ k3s_service_cidr }} --write-kubeconfig-mode=644 --tls-san={{ ansible_host }}"
+  when: not k3s_binary.stat.exists
+
+- name: Ensure k3s service is enabled and running
+  ansible.builtin.systemd:
+    name: k3s
+    enabled: true
+    state: started
+
+- name: Wait for k3s API to be reachable
+  ansible.builtin.wait_for:
+    host: 127.0.0.1
+    port: 6443
+    timeout: 120
+
+- name: Wait for node-token file to be written
+  ansible.builtin.wait_for:
+    path: /var/lib/rancher/k3s/server/node-token
+    timeout: 60
+
+- name: Read the cluster join token
+  ansible.builtin.slurp:
+    src: /var/lib/rancher/k3s/server/node-token
+  register: node_token_raw
+
+- name: Expose join token and server address as facts for worker nodes
+  ansible.builtin.set_fact:
+    k3s_node_token: "{{ node_token_raw.content | b64decode | trim }}"
+    k3s_server_address: "https://{{ ansible_host }}:6443"

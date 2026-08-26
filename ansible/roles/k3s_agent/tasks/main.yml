@@ -1,0 +1,35 @@
+---
+# Installs k3s in agent (worker) mode and joins it to the control-plane
+# node. The join token is never written to disk in this repo - it is read
+# from the control-plane node's hostvars at runtime (see
+# playbooks/site.yml) and passed only as an environment variable to the
+# install script on the worker itself.
+
+- name: Check if k3s is already installed
+  ansible.builtin.stat:
+    path: /usr/local/bin/k3s
+  register: k3s_binary
+
+- name: Download k3s install script
+  ansible.builtin.get_url:
+    url: https://get.k3s.io
+    dest: /tmp/k3s-install.sh
+    mode: "0755"
+  when: not k3s_binary.stat.exists
+
+- name: Run k3s install script in agent mode
+  ansible.builtin.command: /tmp/k3s-install.sh
+  environment:
+    INSTALL_K3S_CHANNEL: "{{ k3s_channel }}"
+    INSTALL_K3S_VERSION: "{{ k3s_version }}"
+    INSTALL_K3S_EXEC: "agent"
+    K3S_URL: "{{ k3s_server_address }}"
+    K3S_TOKEN: "{{ k3s_node_token }}"
+  when: not k3s_binary.stat.exists
+  no_log: true
+
+- name: Ensure k3s-agent service is enabled and running
+  ansible.builtin.systemd:
+    name: k3s-agent
+    enabled: true
+    state: started

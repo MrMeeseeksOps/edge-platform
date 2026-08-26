@@ -1,0 +1,108 @@
+---
+# Base OS preparation applied to every node (control-plane + workers).
+# Every task here is written to be safe to re-run (idempotent).
+
+- name: Set hostname to match inventory name
+  ansible.builtin.hostname:
+    name: "{{ inventory_hostname }}"
+
+- name: Ensure /etc/hosts has entries for every cluster node
+  ansible.builtin.blockinfile:
+    path: /etc/hosts
+    marker: "# {mark} lumen-platform managed block"
+    block: |
+      {% for host in groups['k3s_cluster'] %}
+      {{ hostvars[host].ansible_host | default(hostvars[host].ansible_default_ipv4.address) }} {{ host }}
+      {% endfor %}
+
+- name: Update apt package cache
+  ansible.builtin.apt:
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Install base packages required by k3s and cluster operations
+  ansible.builtin.apt:
+    name:
+      - curl
+      - open-iscsi
+      - apt-transport-https
+      - ca-certificates
+      - chrony
+      - conntrack
+    state: present
+
+- name: Ensure chrony (time sync) is enabled and running
+  ansible.builtin.systemd:
+    name: chrony
+    enabled: true
+    state: started
+
+- name: Check current swap usage
+  ansible.builtin.command: swapon --summary
+  register: swap_status
+  changed_when: false
+
+- name: Disable swap for this session
+  ansible.builtin.command: swapoff -a
+  when: swap_status.stdout != ""
+
+- name: Remove swap entries from /etc/fstab (persist across reboots)
+  ansible.builtin.replace:
+    path: /etc/fstab
+    regexp: '^([^#].*\sswap\s.*)$'
+    replace: '# \1'
+
+- name: Ensure required kernel modules are loaded on boot
+  ansible.builtin.copy:
+    dest: /etc/modules-load.d/lumen-k3s.conf
+    content: |
+      overlay
+      br_netfilter
+    mode: "0644"
+
+- name: Load required kernel modules now
+  community.general.modprobe:
+    name: "{{ item }}"
+    state: present
+  loop:
+    - overlay
+    - br_netfilter
+
+- name: Apply sysctl settings required for Kubernetes networking
+  ansible.posix.sysctl:
+    name: "{{ item.name }}"
+    value: "{{ item.value }}"
+    sysctl_file: /etc/sysctl.d/99-lumen-k3s.conf
+    reload: true
+  loop:
+    - { name: "net.bridge.bridge-nf-call-iptables", value: "1" }
+    - { name: "net.ipv4.ip_forward", value: "1" }
+
+- name: Check whether UFW is installed and active
+  ansible.builtin.command: ufw status
+  register: ufw_status
+  changed_when: false
+  failed_when: false
+
+- name: Open required firewall ports (only when UFW is active)
+  community.general.ufw:
+    rule: allow
+    port: "{{ item }}"
+    proto: "{{ 'udp' if item == '8472' else 'tcp' }}"
+  loop:
+    - "6443"    # k3s / Kubernetes API
+    - "2379"    # etcd client (embedded HA, unused in single-server but harmless)
+    - "2380"    # etcd peer
+    - "10250"   # kubelet
+    - "8472"    # flannel VXLAN
+  when: "'Status: active' in ufw_status.stdout"
+
+- name: Check for pending reboot
+  ansible.builtin.stat:
+    path: /var/run/reboot-required
+  register: reboot_required_file
+
+- name: Reboot node if required by package updates
+  ansible.builtin.reboot:
+    reboot_timeout: 300
+  when: reboot_required_file.stat.exists

@@ -1,0 +1,42 @@
+---
+# Cluster health validation, run from the control-plane node using k3s's
+# built-in kubectl. This is the source of truth for "all nodes Ready".
+
+- name: Get node status via k3s kubectl
+  ansible.builtin.command: k3s kubectl get nodes --no-headers
+  register: node_status
+  changed_when: false
+
+- name: Show raw node status
+  ansible.builtin.debug:
+    var: node_status.stdout_lines
+
+- name: Assert expected number of nodes registered
+  ansible.builtin.assert:
+    that:
+      - node_status.stdout_lines | length == groups['k3s_cluster'] | length
+    fail_msg: >-
+      Expected {{ groups['k3s_cluster'] | length }} nodes registered,
+      found {{ node_status.stdout_lines | length }}.
+    success_msg: "All {{ groups['k3s_cluster'] | length }} expected nodes are registered."
+
+- name: Assert every node reports Ready
+  ansible.builtin.assert:
+    that:
+      - "'NotReady' not in node_status.stdout"
+    fail_msg: "One or more nodes are NotReady. See node status above."
+    success_msg: "All nodes report Ready."
+
+- name: Check core k3s system pods are Running
+  ansible.builtin.command: >-
+    k3s kubectl get pods -n kube-system --no-headers
+    --field-selector=status.phase!=Running,status.phase!=Succeeded
+  register: bad_pods
+  changed_when: false
+
+- name: Assert no unhealthy pods in kube-system
+  ansible.builtin.assert:
+    that:
+      - bad_pods.stdout_lines | length == 0
+    fail_msg: "Unhealthy kube-system pods found: {{ bad_pods.stdout_lines }}"
+    success_msg: "All kube-system pods are healthy."
