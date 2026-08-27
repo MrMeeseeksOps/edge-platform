@@ -76,12 +76,12 @@ that is out of scope here.
 k3s bundles several add-ons by default (Traefik ingress, ServiceLB,
 local-path-provisioner, CoreDNS, metrics-server). Because this milestone
 explicitly excludes application/platform workloads, **Traefik and
-ServiceLB are disabled** at install time (see
-`ansible/inventory/group_vars/all.yml` → `k3s_server_disable`).
-CoreDNS, local-path-provisioner, and metrics-server remain, since they
-are core cluster plumbing rather than workloads. Re-enable Traefik /
-ServiceLB later by removing them from that list and re-running
-`make cluster`.
+ServiceLB are disabled** (see `ansible/inventory/group_vars/all.yml` →
+`k3s_server_disable`). CoreDNS, local-path-provisioner, and
+metrics-server remain, since they are core cluster plumbing rather than
+workloads. Re-enable Traefik / ServiceLB later by removing them from
+that list and re-running `make cluster` — see "Idempotency" below for
+how that change actually reaches an already-provisioned node.
 
 ## Secrets handling
 
@@ -91,10 +91,12 @@ No secrets are ever committed to this repository:
   install time. Ansible reads it from
   `/var/lib/rancher/k3s/server/node-token` on the control-plane node and
   holds it only in memory (an Ansible fact) for the duration of the
-  `make cluster` run, to pass to the worker nodes' install command. It is
-  never written into any file under version control, and the task that
-  uses it (`ansible/roles/k3s_agent/tasks/main.yml`) sets `no_log: true`
-  so it never appears in Ansible's console output or logs either.
+  `make cluster` run, to pass to the worker nodes. It is never written
+  into any file under version control. On each worker it lands only in
+  `/etc/rancher/k3s/config.yaml` (mode `0600`, root-owned), and the task
+  that renders it (`ansible/roles/k3s_agent/tasks/main.yml`) sets
+  `no_log: true` so it never appears in Ansible's console output or logs
+  either.
 - The **kubeconfig** fetched by `make kubeconfig` is written to
   `output/kubeconfig`, a directory excluded via `.gitignore`. This file
   contains a client certificate that grants full cluster-admin access —
@@ -110,15 +112,33 @@ Every Ansible task in this repo is written to be safe to re-run:
 
 - Package installation and systemd state use Ansible's native `apt` /
   `systemd` modules, which only change state when needed.
-- k3s installation is guarded by a `stat` check on
-  `/usr/local/bin/k3s` — the install script only runs once; subsequent
-  runs just ensure the systemd service is enabled and started.
+- k3s **package/install state** and k3s **runtime configuration** are
+  deliberately kept separate, since coupling them would mean declared
+  settings never reach a node that's already been provisioned:
+  - The binary and systemd unit are installed once, guarded by a `stat`
+    check on `/usr/local/bin/k3s` — the install script only runs when
+    the binary is missing.
+  - Runtime settings (`k3s_server_disable`, `k3s_cluster_cidr`,
+    `k3s_service_cidr`, the `--tls-san` value, and — for workers — the
+    join `server`/`token`) are rendered on **every** run to
+    `/etc/rancher/k3s/config.yaml`, which k3s reads automatically on
+    start. The `template` task only reports "changed" when the
+    rendered content actually differs, and that notifies a handler that
+    restarts the `k3s` / `k3s-agent` service — so edits to
+    `group_vars/all.yml` converge on existing nodes via a plain
+    `systemctl restart`, with no reinstall.
+  - Caveat: `cluster-cidr` and `service-cidr` are only consulted at
+    initial datastore bootstrap. Changing them in `group_vars/all.yml`
+    updates the config file and restarts the service, but k3s will not
+    retroactively re-IP an already-running cluster's pods/services —
+    that still requires re-initializing the datastore.
 - `swapoff`, `/etc/fstab`, sysctl, and `/etc/hosts` changes use
   idempotent modules (`replace`, `blockinfile`, `sysctl`) that converge
   rather than append on every run.
 
 This means `make cluster` can be run repeatedly (e.g. after adding a
-node, or to reconcile drift) without side effects.
+node, changing `group_vars/all.yml`, or to reconcile drift) without
+side effects.
 
 ## Validation
 

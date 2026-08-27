@@ -1,7 +1,15 @@
 ---
-# Installs k3s in server (control-plane) mode. Idempotent: the installer
-# is only invoked when the binary isn't already present, and the systemd
-# tasks are naturally idempotent.
+# Installs k3s in server (control-plane) mode. Package/install state and
+# runtime configuration are kept separate so declared settings converge
+# on already-provisioned nodes without a reinstall: the binary/systemd
+# unit are installed once (guarded by k3s_binary.stat.exists), while
+# /etc/rancher/k3s/config.yaml is rendered on every run and the service
+# is only restarted when that file's content actually changes.
+#
+# Note: cluster-cidr and service-cidr are only applied at initial
+# datastore bootstrap - k3s will not re-IP an already-running cluster's
+# pods/services if these change later, even though the file itself
+# always reflects the current group_vars values.
 
 - name: Check if k3s is already installed
   ansible.builtin.stat:
@@ -15,12 +23,29 @@
     mode: "0755"
   when: not k3s_binary.stat.exists
 
+- name: Ensure /etc/rancher/k3s exists
+  ansible.builtin.file:
+    path: /etc/rancher/k3s
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Render k3s server configuration
+  ansible.builtin.template:
+    src: config.yaml.j2
+    dest: /etc/rancher/k3s/config.yaml
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart k3s
+
 - name: Run k3s install script in server mode
   ansible.builtin.command: /tmp/k3s-install.sh
   environment:
     INSTALL_K3S_CHANNEL: "{{ k3s_channel }}"
     INSTALL_K3S_VERSION: "{{ k3s_version }}"
-    INSTALL_K3S_EXEC: "server --disable={{ k3s_server_disable | join(',') }} --cluster-cidr={{ k3s_cluster_cidr }} --service-cidr={{ k3s_service_cidr }} --write-kubeconfig-mode=644 --tls-san={{ ansible_host }}"
+    INSTALL_K3S_EXEC: "server"
   when: not k3s_binary.stat.exists
 
 - name: Ensure k3s service is enabled and running
@@ -28,6 +53,9 @@
     name: k3s
     enabled: true
     state: started
+
+- name: Apply configuration changes before waiting on the API
+  ansible.builtin.meta: flush_handlers
 
 - name: Wait for k3s API to be reachable
   ansible.builtin.wait_for:
