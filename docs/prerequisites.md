@@ -34,17 +34,22 @@ For each of `lumen-cp-01`, `lumen-worker-01`, `lumen-worker-02`:
 
 1. On your control machine (the Mac, or wherever you'll run Ansible
    from), generate a key pair if you don't already have one:
-   ```
+
+   ```bash
    ssh-keygen -t ed25519 -C "lumen-platform"
    ```
+
 2. Copy the **public** key to each VM:
-   ```
+
+   ```bash
    ssh-copy-id ubuntu@192.168.64.11   # lumen-cp-01
    ssh-copy-id ubuntu@192.168.64.12   # lumen-worker-01
    ssh-copy-id ubuntu@192.168.64.13   # lumen-worker-02
    ```
+
 3. Confirm you can log in without a password prompt:
-   ```
+
+   ```bash
    ssh ubuntu@192.168.64.11
    ```
 
@@ -87,7 +92,7 @@ explicitly.
 
 ## 7. Verify before proceeding
 
-```
+```bash
 make ping
 ```
 
