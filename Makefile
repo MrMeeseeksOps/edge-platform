@@ -14,7 +14,7 @@ else
 BECOME_FLAG :=
 endif
 
-ANSIBLE_PLAYBOOK := ansible-playbook -i $(INVENTORY) $(BECOME_FLAG)
+ANSIBLE_PLAYBOOK := ANSIBLE_CONFIG=$(ANSIBLE_DIR)/ansible.cfg ansible-playbook -i $(INVENTORY) $(BECOME_FLAG)
 
 .PHONY: help
 help: ## Show available targets
