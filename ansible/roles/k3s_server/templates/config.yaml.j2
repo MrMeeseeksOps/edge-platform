@@ -7,6 +7,6 @@ disable:
 {% endfor %}
 cluster-cidr: "{{ k3s_cluster_cidr }}"
 service-cidr: "{{ k3s_service_cidr }}"
-write-kubeconfig-mode: "644"
+write-kubeconfig-mode: "600"
 tls-san:
   - "{{ ansible_host }}"

@@ -20,10 +20,12 @@ For each of `lumen-cp-01`, `lumen-worker-01`, `lumen-worker-02`:
    image if you prefer cloud-init provisioning).
 2. In UTM: **New VM → Virtualize → Linux**, attach the ISO, allocate
    CPU/RAM/disk per above.
-3. Network: set the VM to **Shared Network** (recommended — NAT with
-   DHCP, lets the Mac host reach the VM directly for SSH/kubectl) or
-   **Bridged** if you need other LAN machines to reach the cluster too.
-   Avoid "Emulated VLAN" isolated modes that block host↔VM traffic.
+3. Network: set the VM to **Bridged** (recommended — the VM joins your
+   physical LAN directly via the LAN's own DHCP, and is reachable from
+   any machine on that LAN, not just the Mac host, for SSH/kubectl) or
+   **Shared Network** if you'd rather NAT behind the Mac host and only
+   the Mac itself needs to reach the VMs. Avoid "Emulated VLAN" isolated
+   modes that block host↔VM traffic.
 4. During Ubuntu Server install: set the hostname to match the node
    (`lumen-cp-01`, etc.), create an admin user, and **enable OpenSSH
    server** when prompted.
@@ -42,15 +44,18 @@ For each of `lumen-cp-01`, `lumen-worker-01`, `lumen-worker-02`:
 2. Copy the **public** key to each VM:
 
    ```bash
-   ssh-copy-id ubuntu@192.168.64.11   # lumen-cp-01
-   ssh-copy-id ubuntu@192.168.64.12   # lumen-worker-01
-   ssh-copy-id ubuntu@192.168.64.13   # lumen-worker-02
+   ssh-copy-id ubuntu@192.168.1.120   # lumen-cp-01
+   ssh-copy-id ubuntu@192.168.1.121   # lumen-worker-01
+   ssh-copy-id ubuntu@192.168.1.122   # lumen-worker-02
    ```
+
+   (These IPs assume Bridged networking on a `192.168.1.0/24` LAN, as in
+   `ansible/inventory/hosts.ini` — substitute your VMs' actual addresses.)
 
 3. Confirm you can log in without a password prompt:
 
    ```bash
-   ssh ubuntu@192.168.64.11
+   ssh ubuntu@192.168.1.120
    ```
 
 The private key never leaves your control machine and is never

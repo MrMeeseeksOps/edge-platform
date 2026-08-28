@@ -79,7 +79,8 @@ Run `make help` for the full list with descriptions.
 ## Secrets
 
 No secrets are committed to this repository. `output/` (kubeconfig) and
-the cluster join token (never written to disk at all) are the only
-sensitive artifacts this repo produces — see
+the cluster join token — written to disk only on the cluster nodes
+themselves, never into this repo — are the only sensitive artifacts this
+repo produces — see
 [docs/architecture.md](docs/architecture.md#secrets-handling) for exactly
 how each is handled.

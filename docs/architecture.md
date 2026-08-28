@@ -31,7 +31,8 @@ complete when all three nodes report `Ready`.
                           │          └───────▶│    ARM64)       │   │
                           │      UTM virtual  │  k3s agent      │   │
                           │      network      └─────────────────┘   │
-                          │   (Shared Network, 192.168.64.0/24)      │
+                          │   (Bridged to the physical LAN,          │
+                          │    192.168.1.0/24)                       │
                           └───────────────────────────────────────────┘
 ```
 
@@ -50,14 +51,17 @@ that is out of scope here.
 
 ## Networking
 
-- **UTM network mode**: nodes are expected on UTM's "Shared Network"
-  (NAT with DHCP, typically `192.168.64.0/24`, with the Mac host at
-  `192.168.64.1`). This lets both the k3s nodes reach each other and the
-  Mac host reach the nodes directly — required for the "remote kubectl"
-  requirement. Bridged mode (nodes join your physical LAN) also works and
-  is preferable if other machines besides the Mac need `kubectl` access;
-  pick whichever your network allows and update `ansible/inventory/hosts.ini`
-  accordingly.
+- **UTM network mode**: this deployment uses UTM's **Bridged** mode —
+  the VMs join the physical LAN directly and get addresses from the
+  LAN's own DHCP (here, `192.168.1.0/24`; see
+  `ansible/inventory/hosts.ini` for the actual node IPs). This lets both
+  the k3s nodes reach each other and any machine on the LAN — not just
+  the Mac host — reach the nodes directly, which satisfies the "remote
+  kubectl" requirement. UTM's "Shared Network" mode (NAT with DHCP,
+  typically `192.168.64.0/24`, with the Mac host at `192.168.64.1`) also
+  works and is simpler if only the Mac host itself needs access; pick
+  whichever your network allows and update
+  `ansible/inventory/hosts.ini` accordingly.
 - **Ports used**:
   - `22/tcp` — SSH, for Ansible configuration management.
   - `6443/tcp` — Kubernetes/k3s API server (control-plane node; also what
@@ -127,11 +131,19 @@ Every Ansible task in this repo is written to be safe to re-run:
     restarts the `k3s` / `k3s-agent` service — so edits to
     `group_vars/all.yml` converge on existing nodes via a plain
     `systemctl restart`, with no reinstall.
-  - Caveat: `cluster-cidr` and `service-cidr` are only consulted at
-    initial datastore bootstrap. Changing them in `group_vars/all.yml`
-    updates the config file and restarts the service, but k3s will not
-    retroactively re-IP an already-running cluster's pods/services —
-    that still requires re-initializing the datastore.
+  - **"Converged" here describes the config file and the task's
+    idempotency — it means the file on disk matches
+    `group_vars/all.yml` and the service has been restarted against
+    it. It is not automatically a guarantee that every setting inside
+    that file has taken effect in the running cluster.** Most settings
+    (`disable`, `tls-san`) are re-read and applied by k3s on every
+    restart, so file convergence and effective convergence are the
+    same thing for them. `cluster-cidr` and `service-cidr` are the
+    exception: k3s only consults them at initial datastore bootstrap.
+    Changing them in `group_vars/all.yml` still converges the file and
+    restarts the service, but k3s will not retroactively re-IP an
+    already-running cluster's pods/services — that requires
+    re-initializing the datastore, not just a restart.
 - `swapoff`, `/etc/fstab`, sysctl, and `/etc/hosts` changes use
   idempotent modules (`replace`, `blockinfile`, `sysctl`) that converge
   rather than append on every run.
