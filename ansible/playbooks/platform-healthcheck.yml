@@ -1,0 +1,12 @@
+---
+# Validates the platform layer (Dagster + PostgreSQL) is healthy. This
+# is the milestone gate for the platform layer, the same way
+# healthcheck.yml is the gate for the infra milestone.
+
+- name: Validate platform health
+  hosts: k3s_server
+  become: true
+  vars_files:
+    - ../inventory/group_vars/platform.yml
+  roles:
+    - validate_platform

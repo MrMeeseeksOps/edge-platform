@@ -1,0 +1,122 @@
+---
+# Deploys the platform layer (Dagster + PostgreSQL) on top of the
+# already-provisioned k3s cluster (see site.yml). Safe to re-run - each
+# role's Helm releases are idempotent (kubernetes.core.helm diffs
+# against the current release before changing anything), and the image
+# build/distribute plays below are idempotent too (docker build layer
+# cache; ansible.builtin.copy skips re-transferring an unchanged file).
+#
+# Runs entirely against the control-plane node, which already has a
+# local kubeconfig and kubectl (via `k3s kubectl`) - the same node
+# ansible/roles/validate already operates from.
+
+- name: Install Helm and chart repositories
+  hosts: k3s_server
+  become: true
+  tags: [helm]
+  vars_files:
+    - ../inventory/group_vars/platform.yml
+  roles:
+    - helm
+
+- name: Deploy PostgreSQL (CloudNativePG)
+  hosts: k3s_server
+  become: true
+  tags: [postgres]
+  vars_files:
+    - ../inventory/group_vars/platform.yml
+  roles:
+    - postgres
+
+- name: Build the custom ARM64 Dagster image
+  # The chart's default image (dagster/dagster-celery-k8s) is amd64-only
+  # - see docs/architecture.md "Platform workloads". Built natively here
+  # on the control machine (also ARM64, on the reference Apple M1 setup
+  # - no cross-compilation/emulation needed) rather than on a cluster
+  # node, to keep image builds off the small edge VMs.
+  hosts: localhost
+  connection: local
+  become: false
+  tags: [dagster-image]
+  vars_files:
+    - ../inventory/group_vars/platform.yml
+  tasks:
+    - name: Confirm Docker is available on the control machine
+      ansible.builtin.command: docker info
+      register: docker_check
+      changed_when: false
+      failed_when: false
+
+    - name: Fail with guidance if Docker isn't available
+      ansible.builtin.assert:
+        that:
+          - docker_check.rc == 0
+        fail_msg: >-
+          Docker CLI (with a running daemon) is required on the control
+          machine to build the custom Dagster image - see
+          docs/prerequisites.md "Platform layer (optional)".
+
+    - name: Ensure local output directory exists
+      ansible.builtin.file:
+        path: "{{ local_output_dir }}"
+        state: directory
+        mode: "0700"
+
+    - name: Build the Dagster image
+      ansible.builtin.command: >-
+        docker build
+        --build-arg DAGSTER_VERSION={{ dagster_chart_version }}
+        --build-arg DAGSTER_LIBS_VERSION={{ dagster_libs_version }}
+        -t {{ dagster_image_repository }}:{{ dagster_image_tag }}
+        {{ playbook_dir }}/../files/dagster-image
+      changed_when: true
+
+    - name: Save the image to a tarball
+      ansible.builtin.command: >-
+        docker save {{ dagster_image_repository }}:{{ dagster_image_tag }}
+        -o {{ local_output_dir }}/dagster-arm64.tar
+      changed_when: true
+
+- name: Distribute the Dagster image to every cluster node
+  hosts: k3s_cluster
+  become: true
+  tags: [dagster-image]
+  vars_files:
+    - ../inventory/group_vars/platform.yml
+  tasks:
+    - name: Copy the image tarball to the node
+      ansible.builtin.copy:
+        src: "{{ local_output_dir }}/dagster-arm64.tar"
+        dest: /tmp/dagster-arm64.tar
+        mode: "0644"
+
+    - name: Import the image into containerd
+      ansible.builtin.command: k3s ctr images import /tmp/dagster-arm64.tar
+      changed_when: true
+
+    - name: Remove the tarball from the node
+      ansible.builtin.file:
+        path: /tmp/dagster-arm64.tar
+        state: absent
+
+- name: Deploy Dagster
+  hosts: k3s_server
+  become: true
+  tags: [dagster]
+  vars_files:
+    - ../inventory/group_vars/platform.yml
+  roles:
+    - dagster
+
+- name: Print access instructions
+  hosts: k3s_server
+  tags: [dagster]
+  vars_files:
+    - ../inventory/group_vars/platform.yml
+  tasks:
+    - name: Show Dagster access instructions
+      ansible.builtin.debug:
+        msg:
+          - "Add this line to your workstation's /etc/hosts:"
+          - "  {{ ansible_host }} {{ dagster_ingress_host }}"
+          - "Then browse: http://{{ dagster_ingress_host }}/"

@@ -10,11 +10,31 @@
 # datastore bootstrap - k3s will not re-IP an already-running cluster's
 # pods/services if these change later, even though the file itself
 # always reflects the current group_vars values.
+#
+# Nodes installed before this repo switched to config.yaml-driven
+# settings may still have disable/cidr/tls-san baked into
+# /etc/systemd/system/k3s.service's ExecStart as literal CLI flags from
+# that original install. k3s always prefers CLI flags over config.yaml,
+# so any of these left in the unit permanently overrides
+# group_vars/all.yml for that node, no matter how many times the config
+# file gets re-rendered - the "Remove legacy hardcoded flags" task below
+# closes that gap. It's a no-op (and the file always exists by the time
+# it runs) on any node installed after that switch.
 
 - name: Check if k3s is already installed
   ansible.builtin.stat:
     path: /usr/local/bin/k3s
   register: k3s_binary
+
+- name: Remove legacy hardcoded flags from the k3s systemd unit
+  ansible.builtin.lineinfile:
+    path: /etc/systemd/system/k3s.service
+    regexp: "^\\s*'--(disable|cluster-cidr|service-cidr|write-kubeconfig-mode|tls-san)=.*'\\s*\\\\?\\s*$"
+    state: absent
+  when: k3s_binary.stat.exists
+  notify:
+    - Reload systemd
+    - Restart k3s
 
 - name: Download k3s install script
   ansible.builtin.get_url:

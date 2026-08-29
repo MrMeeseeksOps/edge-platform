@@ -1,0 +1,55 @@
+---
+# Platform-layer health validation, run from the control-plane node
+# using k3s's built-in kubectl - mirrors ansible/roles/validate, but for
+# the Dagster + PostgreSQL workloads instead of node-level cluster
+# health. This is the milestone gate for the platform layer.
+#
+# Deployment names below follow the Dagster chart's standard naming
+# ("<release>-dagster-webserver" / "<release>-dagster-daemon"); if a
+# future chart version changes this, `kubectl get deploy -n
+# {{ platform_namespace }}` will show the actual names to update here.
+
+- name: Check PostgreSQL cluster status
+  ansible.builtin.command: >-
+    k3s kubectl -n {{ platform_namespace }} get
+    clusters.postgresql.cnpg.io {{ postgres_cluster_resource_name }}
+    -o jsonpath='{.status.phase}'
+  register: postgres_phase
+  changed_when: false
+
+- name: Assert PostgreSQL cluster is healthy
+  ansible.builtin.assert:
+    that:
+      - "'Cluster in healthy state' in postgres_phase.stdout"
+    fail_msg: "PostgreSQL cluster {{ postgres_cluster_resource_name }} is not healthy: {{ postgres_phase.stdout }}"
+    success_msg: "PostgreSQL cluster {{ postgres_cluster_resource_name }} is healthy."
+
+- name: Check Dagster webserver deployment status
+  ansible.builtin.command: >-
+    k3s kubectl -n {{ platform_namespace }} get deployment
+    {{ dagster_release_name }}-dagster-webserver
+    -o jsonpath='{.status.conditions[?(@.type=="Available")].status}'
+  register: dagster_webserver_available
+  changed_when: false
+
+- name: Assert Dagster webserver is available
+  ansible.builtin.assert:
+    that:
+      - "'True' in dagster_webserver_available.stdout"
+    fail_msg: "Dagster webserver deployment is not Available."
+    success_msg: "Dagster webserver is Available."
+
+- name: Check Dagster daemon deployment status
+  ansible.builtin.command: >-
+    k3s kubectl -n {{ platform_namespace }} get deployment
+    {{ dagster_release_name }}-dagster-daemon
+    -o jsonpath='{.status.conditions[?(@.type=="Available")].status}'
+  register: dagster_daemon_available
+  changed_when: false
+
+- name: Assert Dagster daemon is available
+  ansible.builtin.assert:
+    that:
+      - "'True' in dagster_daemon_available.stdout"
+    fail_msg: "Dagster daemon deployment is not Available."
+    success_msg: "Dagster daemon is Available."

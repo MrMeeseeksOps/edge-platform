@@ -8,14 +8,14 @@
 k3s_channel: stable
 k3s_version: ""   # e.g. "v1.30.5+k3s1" - overrides k3s_channel when set
 
-# Server-side components disabled at install time. This milestone only
-# brings the cluster to Ready with no application/platform workloads, so
-# the bundled ingress controller and service load balancer are switched
-# off. Re-enable (remove from this list) when you're ready to deploy
-# workloads that need them.
-k3s_server_disable:
-  - traefik
-  - servicelb
+# Server-side components disabled at install time. Traefik and
+# ServiceLB are enabled (i.e. absent from this list) because the
+# platform layer (ansible/playbooks/platform.yml - see
+# docs/architecture.md "Platform workloads") uses Traefik as its
+# Ingress controller. Add them back here if you never run that
+# playbook and want the bare infra milestone's original minimal
+# footprint.
+k3s_server_disable: []
 
 # Internal cluster networking (k3s defaults shown explicitly for clarity).
 k3s_cluster_cidr: "10.42.0.0/16"

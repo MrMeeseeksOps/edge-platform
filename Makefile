@@ -53,6 +53,14 @@ kubeconfig: ## Fetch and localize kubeconfig for remote kubectl access
 healthcheck: ## Verify all nodes are Ready and core pods are healthy
 	$(ANSIBLE_PLAYBOOK) $(ANSIBLE_DIR)/playbooks/healthcheck.yml
 
+.PHONY: platform
+platform: ## Deploy the platform layer: Dagster + PostgreSQL (idempotent)
+	$(ANSIBLE_PLAYBOOK) $(ANSIBLE_DIR)/playbooks/platform.yml
+
+.PHONY: platform-healthcheck
+platform-healthcheck: ## Verify Dagster + PostgreSQL are healthy
+	$(ANSIBLE_PLAYBOOK) $(ANSIBLE_DIR)/playbooks/platform-healthcheck.yml
+
 .PHONY: status
 status: ## Show node status via remote kubectl (requires `make kubeconfig` first)
 	@if [ ! -f $(KUBECONFIG_FILE) ]; then echo "Run 'make kubeconfig' first."; exit 1; fi

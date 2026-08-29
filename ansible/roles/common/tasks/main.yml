@@ -95,6 +95,8 @@
     - "2380"    # etcd peer
     - "10250"   # kubelet
     - "8472"    # flannel VXLAN
+    - "80"      # Traefik ingress (HTTP) - platform layer, see platform.yml
+    - "443"     # Traefik ingress (HTTPS) - platform layer, see platform.yml
   when: "'Status: active' in ufw_status.stdout"
 
 - name: Check for pending reboot

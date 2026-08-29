@@ -84,8 +84,10 @@ On whichever machine will run `make` (this can be the Mac host itself):
 - **kubectl**, matching the k3s Kubernetes minor version where possible
   (`brew install kubectl`) — needed for `make status` and any manual
   cluster inspection after `make kubeconfig`.
-- Run `make install-deps` once to pull the two required Ansible
-  collections (`community.general`, `ansible.posix`).
+- Run `make install-deps` once to pull the required Ansible collections
+  (`community.general`, `ansible.posix`, and — if you'll run the
+  optional platform layer, `make platform` — `kubernetes.core`, which
+  provides the Helm-related modules).
 
 ## 6. Trust the VMs' SSH host keys
 
@@ -104,3 +106,18 @@ make ping
 This runs `ansible/playbooks/preflight.yml`, confirming SSH connectivity,
 sudo access, and that each node is Ubuntu on arm64. Fix anything it
 reports before running `make cluster`.
+
+## 8. Platform layer (optional)
+
+Once `make healthcheck` passes, `make platform` deploys Dagster +
+PostgreSQL (see
+[docs/architecture.md](architecture.md#platform-workloads)). Helm
+itself is installed automatically onto the control-plane node, the same
+way k3s is — but you need **Docker** (with a running daemon) on the
+control machine, to build the custom ARM64 Dagster image (the upstream
+image is amd64-only). On the Mac host, [Docker
+Desktop](https://www.docker.com/products/docker-desktop/) is the
+simplest option; any Docker-compatible daemon works. After
+`make platform` finishes, add the `/etc/hosts` line it prints (mapping
+`dagster_ingress_host` to a node IP) to reach the Dagster UI in a
+browser.

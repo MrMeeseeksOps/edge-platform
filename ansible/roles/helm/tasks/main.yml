@@ -1,0 +1,29 @@
+---
+# Installs the Helm CLI on the control-plane node - the only node that
+# runs kubectl/helm against the cluster (ansible/roles/validate already
+# operates the same way, via `k3s kubectl` on this host) - and registers
+# the chart repositories used by the platform layer. Follows the same
+# install-once, stat-guarded pattern used for the k3s binary itself in
+# ansible/roles/k3s_server.
+
+- name: Check if Helm is already installed
+  ansible.builtin.stat:
+    path: /usr/local/bin/helm
+  register: helm_binary
+
+- name: Download Helm install script
+  ansible.builtin.get_url:
+    url: https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3
+    dest: /tmp/get-helm-3.sh
+    mode: "0755"
+  when: not helm_binary.stat.exists
+
+- name: Run Helm install script
+  ansible.builtin.command: /tmp/get-helm-3.sh
+  when: not helm_binary.stat.exists
+
+- name: Register chart repositories
+  kubernetes.core.helm_repository:
+    name: "{{ item.key }}"
+    repo_url: "{{ item.value }}"
+  loop: "{{ helm_repos | dict2items }}"

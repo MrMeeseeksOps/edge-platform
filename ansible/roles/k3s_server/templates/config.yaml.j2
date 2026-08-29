@@ -1,10 +1,13 @@
 # Managed by Ansible (ansible/roles/k3s_server) - do not edit by hand.
 # Read automatically by k3s on every start; changing this file and
 # restarting the service is enough to converge - no reinstall needed.
-disable:
-{% for addon in k3s_server_disable %}
-  - {{ addon }}
-{% endfor %}
+#
+# disable must always render as an explicit YAML list, even when empty
+# ("disable: []") - a bare "disable:" key with nothing after it parses
+# as YAML null, which k3s does NOT treat as "disable nothing": it tears
+# down every bundled addon (coredns, local-storage, metrics-server, ccm,
+# etc), not just the ones you meant to disable.
+disable: {{ k3s_server_disable | to_json }}
 cluster-cidr: "{{ k3s_cluster_cidr }}"
 service-cidr: "{{ k3s_service_cidr }}"
 write-kubeconfig-mode: "600"

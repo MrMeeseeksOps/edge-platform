@@ -1,0 +1,66 @@
+---
+# Deploys PostgreSQL via the CloudNativePG (CNPG) operator: the operator
+# itself (cluster-wide, one per k3s cluster) into cnpg-system, then a
+# single-instance Cluster into the platform namespace, using k3s's
+# built-in local-path-provisioner for storage. CNPG generates and owns
+# the application user's credentials itself, in a Secret named
+# "<postgres_cluster_name>-cluster-app" - Ansible never invents or stores a
+# database password. Only that one generated password is ever read, and
+# only in-memory (no_log: true), the same way the k3s join token is
+# handled in ansible/roles/k3s_server.
+
+- name: Install the CloudNativePG operator
+  kubernetes.core.helm:
+    name: cnpg
+    chart_ref: cnpg/cloudnative-pg
+    chart_version: "{{ cnpg_operator_chart_version }}"
+    release_namespace: "{{ cnpg_operator_namespace }}"
+    create_namespace: true
+    kubeconfig: /etc/rancher/k3s/k3s.yaml
+    wait: true
+    wait_timeout: 5m
+
+- name: Wait for the CloudNativePG operator pod to be ready
+  ansible.builtin.command: >-
+    k3s kubectl -n {{ cnpg_operator_namespace }} wait pod
+    -l app.kubernetes.io/name=cloudnative-pg
+    --for=condition=ready --timeout=300s
+  changed_when: false
+
+- name: Deploy the PostgreSQL cluster
+  kubernetes.core.helm:
+    name: "{{ postgres_cluster_name }}"
+    chart_ref: cnpg/cluster
+    chart_version: "{{ cnpg_cluster_chart_version }}"
+    release_namespace: "{{ platform_namespace }}"
+    create_namespace: true
+    kubeconfig: /etc/rancher/k3s/k3s.yaml
+    values:
+      cluster:
+        instances: "{{ postgres_instances }}"
+        storage:
+          size: "{{ postgres_storage_size }}"
+          storageClass: "{{ postgres_storage_class }}"
+        initdb:
+          database: "{{ postgres_db_name }}"
+
+- name: Wait for the PostgreSQL cluster to report healthy
+  ansible.builtin.command: >-
+    k3s kubectl -n {{ platform_namespace }} wait
+    clusters.postgresql.cnpg.io/{{ postgres_cluster_resource_name }}
+    --for=condition=Ready --timeout=300s
+  changed_when: false
+
+- name: Read the generated application database password
+  ansible.builtin.command: >-
+    k3s kubectl -n {{ platform_namespace }} get secret
+    {{ postgres_cluster_resource_name }}-app -o jsonpath='{.data.password}'
+  register: postgres_password_b64
+  changed_when: false
+  no_log: true
+
+- name: Expose PostgreSQL connection details for the dagster role
+  ansible.builtin.set_fact:
+    postgres_service_host: "{{ postgres_cluster_resource_name }}-rw.{{ platform_namespace }}.svc.cluster.local"
+    postgres_app_password: "{{ postgres_password_b64.stdout | b64decode }}"
+  no_log: true

@@ -8,6 +8,16 @@ idempotently via Ansible and operated through a Makefile. **No
 application or platform workloads are deployed** — the milestone is
 complete when all three nodes report `Ready`.
 
+A second, optional milestone layers Dagster + PostgreSQL on top of this
+cluster once it's `Ready` — see
+["Platform workloads"](#platform-workloads) below. It's deployed
+through this same Ansible/Makefile interface as a deliberate choice for
+now, rather than a separate repo/GitOps tool: simpler for a single
+operator running one or two apps. If more apps get deployed onto this
+cluster later, split workload deployment out into its own repo/tool at
+that point — infra and workload lifecycles diverge enough at that scale
+to be worth the separation.
+
 ## Topology
 
 ```
@@ -70,6 +80,9 @@ that is out of scope here.
   - `10250/tcp` — kubelet API, between all cluster nodes.
   - `2379/tcp`, `2380/tcp` — reserved for etcd if later converted to HA;
     opened defensively, unused with a single server node today.
+  - `80/tcp`, `443/tcp` — Traefik ingress, used by the platform layer
+    (see "Platform workloads" below); harmless if you never run
+    `make platform`.
 - The `common` Ansible role only manages these firewall rules if `ufw` is
   already active on a node; a fresh Ubuntu Server install ships with
   `ufw` inactive by default, so no ports are exposed unless you've
@@ -78,14 +91,87 @@ that is out of scope here.
 ## Cluster components
 
 k3s bundles several add-ons by default (Traefik ingress, ServiceLB,
-local-path-provisioner, CoreDNS, metrics-server). Because this milestone
-explicitly excludes application/platform workloads, **Traefik and
-ServiceLB are disabled** (see `ansible/inventory/group_vars/all.yml` →
-`k3s_server_disable`). CoreDNS, local-path-provisioner, and
-metrics-server remain, since they are core cluster plumbing rather than
-workloads. Re-enable Traefik / ServiceLB later by removing them from
-that list and re-running `make cluster` — see "Idempotency" below for
-how that change actually reaches an already-provisioned node.
+local-path-provisioner, CoreDNS, metrics-server). **Traefik and
+ServiceLB are enabled** (`ansible/inventory/group_vars/all.yml` →
+`k3s_server_disable` is empty) because the platform layer uses Traefik
+as its Ingress controller — see "Platform workloads" below. If you only
+ever run the infra milestone and want the original minimal footprint,
+add `traefik` and `servicelb` back to that list and re-run `make
+cluster` — see "Idempotency" below for how that change actually reaches
+an already-provisioned node.
+
+## Platform workloads
+
+`ansible/playbooks/platform.yml` (`make platform`) deploys an optional
+second layer on top of the Ready cluster: Dagster, backed by
+PostgreSQL. It stops at "Dagster is Running and backed by Postgres" —
+it does **not** deploy any actual Dagster pipeline/user code (the
+chart's `dagster-user-deployments` subchart is disabled); that's future
+work, the same way the infra milestone deliberately stops short of
+workloads.
+
+| Namespace       | What                                                                                                                                                                     |
+|-----------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `cnpg-system`   | [CloudNativePG](https://cloudnative-pg.io) operator (cluster-wide)                                                                                                      |
+| `data-platform` | A single-instance CloudNativePG `Cluster` (database `dagster`, `local-path` storage) + the Dagster Helm release, configured with `postgresql.enabled: false` to use that Cluster instead of its own bundled Postgres |
+
+Both are installed via `kubernetes.core.helm` from the control-plane
+node (`ansible/roles/helm`, `ansible/roles/postgres`,
+`ansible/roles/dagster`) — the same node `ansible/roles/validate`
+already runs `k3s kubectl` from, using the node's local
+`/etc/rancher/k3s/k3s.yaml`. No Python `kubernetes` client is required
+on any host; `kubernetes.core.helm`/`helm_repository` only shell out to
+the `helm` binary.
+
+**Why CloudNativePG, not the more commonly-referenced Bitnami
+`postgresql` chart:** Bitnami moved its Helm-chart images behind a
+paywall/legacy-archive on 2025-08-28, making `bitnami/postgresql` a
+poor default going forward. CloudNativePG is a free, actively
+maintained, CNCF-adjacent Postgres operator, and its operational model
+(Kubernetes-native `Cluster` custom resource, self-managed credential
+Secret) fits this repo's existing patterns better than a bare
+StatefulSet chart would.
+
+**Custom ARM64 Dagster image:** the Dagster Helm chart's default image
+(`dagster/dagster-celery-k8s`, used for both the webserver and the
+daemon regardless of run-launcher choice) is published `linux/amd64`
+only — confirmed against Docker Hub, and tracked upstream as still-open
+in [dagster-io/dagster#11841](https://github.com/dagster-io/dagster/issues/11841).
+Every node in this cluster is ARM64, so `platform.yml` builds a small
+custom image instead (`ansible/files/dagster-image/Dockerfile` — just
+`pip install dagster dagster-webserver dagster-postgres dagster-k8s` on
+a `python:3.11-slim` base, which is essentially what the upstream image
+contains for this configuration: no Celery, no bundled user code). The
+build runs on the **control machine**, not a cluster node — on the
+reference Apple M1 setup that's native ARM64 compilation, no
+cross-compilation or emulation needed, and it keeps image builds off
+the small edge VMs. The resulting image is saved to a tarball and
+imported directly into every node's containerd via `k3s ctr images
+import` — it is never pushed to any registry, so the chart's
+`pullPolicy`/`imagePullPolicy` are set to `Never` everywhere the image
+is referenced (webserver, daemon, and the `K8sRunLauncher`'s job image,
+which needs it set explicitly since there's no user-code image to
+inherit from with `dagster-user-deployments` disabled). Requires Docker
+on the control machine — see `docs/prerequisites.md`.
+
+**Ingress:** the Dagster webserver is exposed via a Traefik `Ingress` at
+`dagster_ingress_host` (default `dagster.lumen.local`,
+`ansible/inventory/group_vars/platform.yml`). Traefik/ServiceLB run a
+pod on every node and bind host ports 80/443, so any cluster node's IP
+resolves it — `make platform` prints the exact `/etc/hosts` line to add
+on your workstation. `ansible/roles/dagster` overrides the chart's
+default Ingress path (`/*`, `pathType: ImplementationSpecific`) to a
+standard `path: "/"` / `pathType: Prefix`: the chart's default is
+written for nginx-ingress's glob handling, and Traefik treats
+`ImplementationSpecific` as a literal path-prefix match — a rule of
+`/*` only matches URLs starting with the literal characters `/*`,
+never `/` itself, which 404s every real request.
+
+**Storage:** the PostgreSQL `Cluster`'s volume uses k3s's bundled
+`local-path-provisioner` (already enabled in the infra milestone), the
+same as any other PVC on this cluster. This ties data durability to
+whichever node the pod lands on — acceptable for a single-instance edge
+lab, not a substitute for backups.
 
 ## Secrets handling
 
@@ -109,6 +195,15 @@ No secrets are ever committed to this repository:
 - **SSH access** relies on a key pair you generate and manage yourself
   (see `docs/prerequisites.md`) — no private key is ever stored in this
   repository.
+- The **PostgreSQL application password** (platform layer) is generated
+  and owned entirely by the CloudNativePG operator, in a Secret named
+  `<postgres_cluster_name>-cluster-app` inside the `data-platform` namespace —
+  Ansible never invents or stores this password. `ansible/roles/postgres`
+  reads it once, in-memory, to hand it to the Dagster Helm release
+  (`ansible/roles/dagster`); both tasks that touch it are `no_log: true`,
+  the same treatment as the k3s join token above. To read it yourself:
+  `kubectl -n data-platform get secret platform-postgres-cluster-app -o
+  jsonpath='{.data.password}' | base64 -d`.
 
 ## Idempotency
 
