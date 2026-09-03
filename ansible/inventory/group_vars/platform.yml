@@ -1,20 +1,21 @@
 ---
-# Non-secret configuration for the platform layer (Dagster + PostgreSQL),
-# deployed on top of the k3s cluster by ansible/playbooks/platform.yml.
-# No secrets belong here - see docs/architecture.md "Secrets handling".
-# Not auto-loaded by Ansible (no inventory group named "platform"); the
-# platform.yml plays pull this in explicitly via vars_files.
+# Non-secret configuration for the platform layer (PostgreSQL +
+# Metabase), deployed on top of the k3s cluster by
+# ansible/playbooks/platform.yml. No secrets belong here - see
+# docs/architecture.md "Secrets handling". Not auto-loaded by Ansible
+# (no inventory group named "platform"); the platform.yml plays pull
+# this in explicitly via vars_files.
 
 # Helm chart repositories and pinned versions. Pinned so `make platform`
 # is reproducible - re-check `helm search repo <repo>/<chart>` for newer
 # releases before bumping.
 helm_repos:
   cnpg: https://cloudnative-pg.io/charts
-  dagster: https://dagster-io.github.io/helm
+  metabase: https://pmint93.github.io/helm-charts
 
 cnpg_operator_chart_version: "0.29.0"
 cnpg_cluster_chart_version: "0.8.1"
-dagster_chart_version: "1.13.20"
+metabase_chart_version: "2.27.6"
 
 # Namespaces.
 cnpg_operator_namespace: cnpg-system
@@ -25,29 +26,14 @@ platform_namespace: data-platform
 # so the app username equals postgres_db_name.
 postgres_cluster_name: platform-postgres
 postgres_cluster_resource_name: "{{ postgres_cluster_name }}-cluster"
-postgres_db_name: dagster
+postgres_db_name: metabase
 postgres_instances: 1
 postgres_storage_size: 8Gi
 postgres_storage_class: local-path
 
-# Dagster. User code/pipeline deployments are intentionally left
-# disabled - see docs/architecture.md "Platform workloads".
-dagster_release_name: dagster
-dagster_ingress_host: dagster.lumen.local
-dagster_ingress_class: traefik
-
-# Custom ARM64 Dagster image (ansible/files/dagster-image/Dockerfile).
-# The upstream chart's default image (dagster/dagster-celery-k8s) is
-# amd64-only - see docs/architecture.md "Platform workloads". Built on
-# the control machine and imported directly into every node's
-# containerd; never pushed to a registry, so pullPolicy stays "Never".
-# Tag tracks dagster_chart_version so image and chart never drift apart.
-dagster_image_repository: docker.io/library/dagster-arm64
-dagster_image_tag: "{{ dagster_chart_version }}"
-
-# Companion Dagster Python libraries (dagster-postgres, dagster-k8s)
-# release in lockstep with `dagster` but on their own older major.minor
-# track - e.g. dagster 1.13.20 pairs with dagster-postgres/dagster-k8s
-# 0.29.20 (same trailing patch number, different major.minor). Verify
-# the pairing on PyPI whenever dagster_chart_version is bumped.
-dagster_libs_version: "0.29.20"
+# Metabase. Uses the CNPG-generated "<postgres_cluster_resource_name>-app"
+# Secret directly as its application database (ansible/roles/metabase) -
+# see docs/architecture.md "Platform workloads".
+metabase_release_name: metabase
+metabase_ingress_host: metabase.lumen.local
+metabase_ingress_class: traefik

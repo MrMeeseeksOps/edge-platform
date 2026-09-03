@@ -1,5 +1,5 @@
 ---
-# Validates the platform layer (Dagster + PostgreSQL) is healthy. This
+# Validates the platform layer (PostgreSQL + Metabase) is healthy. This
 # is the milestone gate for the platform layer, the same way
 # healthcheck.yml is the gate for the infra milestone.
 

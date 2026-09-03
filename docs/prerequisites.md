@@ -109,15 +109,12 @@ reports before running `make cluster`.
 
 ## 8. Platform layer (optional)
 
-Once `make healthcheck` passes, `make platform` deploys Dagster +
-PostgreSQL (see
+Once `make healthcheck` passes, `make platform` deploys PostgreSQL +
+Metabase (see
 [docs/architecture.md](architecture.md#platform-workloads)). Helm
 itself is installed automatically onto the control-plane node, the same
-way k3s is — but you need **Docker** (with a running daemon) on the
-control machine, to build the custom ARM64 Dagster image (the upstream
-image is amd64-only). On the Mac host, [Docker
-Desktop](https://www.docker.com/products/docker-desktop/) is the
-simplest option; any Docker-compatible daemon works. After
-`make platform` finishes, add the `/etc/hosts` line it prints (mapping
-`dagster_ingress_host` to a node IP) to reach the Dagster UI in a
-browser.
+way k3s is, and Metabase's image is pulled directly from Docker Hub on
+each node — no extra tooling is required on the control machine beyond
+what's already listed in step 5. After `make platform` finishes, add
+the `/etc/hosts` line it prints (mapping `metabase_ingress_host` to a
+node IP) to reach the Metabase UI in a browser.

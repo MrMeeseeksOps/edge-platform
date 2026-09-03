@@ -54,11 +54,11 @@ healthcheck: ## Verify all nodes are Ready and core pods are healthy
 	$(ANSIBLE_PLAYBOOK) $(ANSIBLE_DIR)/playbooks/healthcheck.yml
 
 .PHONY: platform
-platform: ## Deploy the platform layer: Dagster + PostgreSQL (idempotent)
+platform: ## Deploy the platform layer: PostgreSQL + Metabase (idempotent)
 	$(ANSIBLE_PLAYBOOK) $(ANSIBLE_DIR)/playbooks/platform.yml
 
 .PHONY: platform-healthcheck
-platform-healthcheck: ## Verify Dagster + PostgreSQL are healthy
+platform-healthcheck: ## Verify PostgreSQL + Metabase are healthy
 	$(ANSIBLE_PLAYBOOK) $(ANSIBLE_DIR)/playbooks/platform-healthcheck.yml
 
 .PHONY: status

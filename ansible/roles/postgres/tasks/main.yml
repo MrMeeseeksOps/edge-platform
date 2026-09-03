@@ -4,10 +4,9 @@
 # single-instance Cluster into the platform namespace, using k3s's
 # built-in local-path-provisioner for storage. CNPG generates and owns
 # the application user's credentials itself, in a Secret named
-# "<postgres_cluster_name>-cluster-app" - Ansible never invents or stores a
-# database password. Only that one generated password is ever read, and
-# only in-memory (no_log: true), the same way the k3s join token is
-# handled in ansible/roles/k3s_server.
+# "<postgres_cluster_name>-cluster-app" - Ansible never invents, stores,
+# or reads this password; ansible/roles/metabase points the Metabase
+# Helm release at that Secret directly instead.
 
 - name: Install the CloudNativePG operator
   kubernetes.core.helm:
@@ -57,10 +56,4 @@
     {{ postgres_cluster_resource_name }}-app -o jsonpath='{.data.password}'
   register: postgres_password_b64
   changed_when: false
-  no_log: true
-
-- name: Expose PostgreSQL connection details for the dagster role
-  ansible.builtin.set_fact:
-    postgres_service_host: "{{ postgres_cluster_resource_name }}-rw.{{ platform_namespace }}.svc.cluster.local"
-    postgres_app_password: "{{ postgres_password_b64.stdout | b64decode }}"
   no_log: true

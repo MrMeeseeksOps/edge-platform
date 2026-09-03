@@ -4,8 +4,8 @@ k3s bring-up for a 3-node ARM64 cluster running on UTM VMs on an Apple M1
 MacBook Pro, configured idempotently via Ansible and operated through a
 `Makefile`. The base milestone is **infrastructure bring-up only**: one
 control-plane node and two worker nodes with no application/platform
-workloads. An additive, optional second layer deploys Dagster +
-PostgreSQL on top of that cluster — see
+workloads. An additive, optional second layer deploys PostgreSQL +
+Metabase on top of that cluster — see
 [docs/architecture.md](docs/architecture.md) for scope, topology, and
 secrets handling, and [docs/prerequisites.md](docs/prerequisites.md)
 before you start.
@@ -16,8 +16,8 @@ before you start.
 `lumen-cp-01`, `lumen-worker-01`, `lumen-worker-02` — as `Ready`.
 
 **Platform (optional) — done when:** `make platform-healthcheck`
-reports the PostgreSQL cluster healthy and the Dagster webserver +
-daemon `Available`.
+reports the PostgreSQL cluster healthy and the Metabase deployment
+`Available`.
 
 ## Repo layout
 
@@ -30,14 +30,12 @@ ansible/
     hosts.ini                     nodes + IPs — edit this for your VMs
     group_vars/all.yml            non-secret cluster config (k3s version, disabled add-ons, CIDRs)
     group_vars/platform.yml       non-secret platform config (chart versions, namespaces, ingress host)
-  files/
-    dagster-image/Dockerfile      custom ARM64 Dagster image (upstream image is amd64-only)
   playbooks/
     preflight.yml                 SSH/sudo/OS sanity check
     site.yml                      full bring-up: OS prep -> control-plane -> workers
     fetch-kubeconfig.yml          pulls + localizes kubeconfig for remote kubectl
     healthcheck.yml                validates Ready state (the infra milestone gate)
-    platform.yml                  deploys Dagster + PostgreSQL (optional platform layer)
+    platform.yml                  deploys PostgreSQL + Metabase (optional platform layer)
     platform-healthcheck.yml      validates the platform layer (the platform milestone gate)
   roles/
     common/                       OS prep: packages, swap off, sysctl, firewall, hosts file
@@ -46,8 +44,8 @@ ansible/
     validate/                     node/pod health assertions used by healthcheck.yml
     helm/                         installs Helm CLI + chart repos, on the control-plane node
     postgres/                     deploys the CloudNativePG operator + a PostgreSQL Cluster
-    dagster/                      deploys the Dagster Helm chart against that Cluster
-    validate_platform/            Dagster/PostgreSQL health assertions used by platform-healthcheck.yml
+    metabase/                     deploys the Metabase Helm chart against that Cluster
+    validate_platform/            PostgreSQL/Metabase health assertions used by platform-healthcheck.yml
 docs/
   architecture.md                 topology, node roles, networking, secrets handling, idempotency
   prerequisites.md                UTM VM setup, SSH keys, sudo, control-machine tooling
@@ -76,19 +74,17 @@ e.g. `make cluster ASK_PASS=1`.
 
 ### Platform (optional)
 
-Once the infra milestone is `Ready`, layer Dagster + PostgreSQL on top.
-This needs **Docker** on your control machine (see
-[docs/prerequisites.md](docs/prerequisites.md#8-platform-layer-optional)) —
-`make platform` builds a custom ARM64 Dagster image locally, since the
-chart's default image is amd64-only:
+Once the infra milestone is `Ready`, layer PostgreSQL + Metabase on top
+— see
+[docs/prerequisites.md](docs/prerequisites.md#8-platform-layer-optional):
 
 ```
-make platform             # idempotent: image build + Helm + PostgreSQL (CloudNativePG) + Dagster
-make platform-healthcheck # milestone gate: asserts PostgreSQL healthy, Dagster Available
+make platform             # idempotent: Helm + PostgreSQL (CloudNativePG) + Metabase
+make platform-healthcheck # milestone gate: asserts PostgreSQL healthy, Metabase Available
 ```
 
 `make platform` prints the `/etc/hosts` line and URL to reach the
-Dagster UI. See
+Metabase UI. See
 [docs/architecture.md](docs/architecture.md#platform-workloads) for
 what gets deployed and why.
 
@@ -106,8 +102,8 @@ Run `make help` for the full list with descriptions.
 | `kubeconfig`          | Fetch + localize kubeconfig to `output/kubeconfig`        |
 | `status`              | `kubectl get nodes -o wide` from the workstation          |
 | `healthcheck`         | Infra milestone gate — asserts all nodes Ready             |
-| `platform`            | Deploy the platform layer: Dagster + PostgreSQL (idempotent) |
-| `platform-healthcheck`| Platform milestone gate — asserts Dagster + PostgreSQL healthy |
+| `platform`            | Deploy the platform layer: PostgreSQL + Metabase (idempotent) |
+| `platform-healthcheck`| Platform milestone gate — asserts PostgreSQL + Metabase healthy |
 | `lint`                | `ansible-lint` if installed                                |
 | `clean`               | Remove `output/` (kubeconfig etc.) — does not touch the cluster |
 
