@@ -1,39 +1,27 @@
 ---
-# Non-secret configuration for the platform layer (PostgreSQL +
-# Metabase), deployed on top of the k3s cluster by
-# ansible/playbooks/platform.yml. No secrets belong here - see
-# docs/architecture.md "Secrets handling". Not auto-loaded by Ansible
-# (no inventory group named "platform"); the platform.yml plays pull
-# this in explicitly via vars_files.
+# Non-secret configuration for the platform layer: ArgoCD, bootstrapped
+# on top of the k3s cluster by ansible/playbooks/platform.yml. No
+# secrets belong here - see docs/architecture.md "Secrets handling".
+# Not auto-loaded by Ansible (no inventory group named "platform"); the
+# platform.yml plays pull this in explicitly via vars_files.
+#
+# PostgreSQL + Metabase configuration (chart versions, namespaces,
+# ingress hosts, database settings) no longer lives here - once ArgoCD
+# is bootstrapped, it's managed as plain committed YAML under
+# argocd/apps/, not templated by Ansible. See docs/architecture.md
+# "GitOps (ArgoCD)".
 
-# Helm chart repositories and pinned versions. Pinned so `make platform`
-# is reproducible - re-check `helm search repo <repo>/<chart>` for newer
+# Helm chart repository and pinned version. Pinned so `make platform`
+# is reproducible - re-check `helm search repo argo/argo-cd` for newer
 # releases before bumping.
 helm_repos:
-  cnpg: https://cloudnative-pg.io/charts
-  metabase: https://pmint93.github.io/helm-charts
+  argo: https://argoproj.github.io/argo-helm
 
-cnpg_operator_chart_version: "0.29.0"
-cnpg_cluster_chart_version: "0.8.1"
-metabase_chart_version: "2.27.6"
+argocd_chart_version: "10.7.1"
 
-# Namespaces.
-cnpg_operator_namespace: cnpg-system
-platform_namespace: data-platform
+# Namespace.
+argocd_namespace: argocd
 
-# PostgreSQL (CloudNativePG). Single instance - this is an edge lab, not
-# an HA deployment. initdb.owner defaults to initdb.database when unset,
-# so the app username equals postgres_db_name.
-postgres_cluster_name: platform-postgres
-postgres_cluster_resource_name: "{{ postgres_cluster_name }}-cluster"
-postgres_db_name: metabase
-postgres_instances: 1
-postgres_storage_size: 8Gi
-postgres_storage_class: local-path
-
-# Metabase. Uses the CNPG-generated "<postgres_cluster_resource_name>-app"
-# Secret directly as its application database (ansible/roles/metabase) -
-# see docs/architecture.md "Platform workloads".
-metabase_release_name: metabase
-metabase_ingress_host: metabase.lumen.local
-metabase_ingress_class: traefik
+argocd_release_name: argocd
+argocd_ingress_host: argocd.lumen.local
+argocd_ingress_class: traefik

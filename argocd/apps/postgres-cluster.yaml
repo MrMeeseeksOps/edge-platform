@@ -1,0 +1,46 @@
+# A single-instance CloudNativePG Cluster (database "metabase"),
+# storing data on k3s's built-in local-path-provisioner - single
+# instance, ties durability to whichever node the pod lands on;
+# acceptable for a single-instance edge lab, not a substitute for
+# backups. CNPG generates and owns the app user's credentials itself in
+# a Secret named "platform-postgres-cluster-app" - ArgoCD/Ansible never
+# invent or store this password; metabase.yaml reads it directly via
+# database.existingSecret.
+#
+# Ordering: ArgoCD has no built-in health check for
+# clusters.postgresql.cnpg.io Custom Resources, so it does not block
+# syncing metabase.yaml until this Cluster reports healthy the way
+# ansible/roles/postgres used to (`k3s kubectl wait
+# --for=condition=Ready`). In practice this is harmless - the Metabase
+# pod crash-loops until the Secret exists, then self-heals - but is
+# worth knowing if you're watching `argocd app list` right after
+# bootstrap and Metabase isn't Healthy yet.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: postgres-cluster
+  namespace: argocd
+spec:
+  project: platform
+  source:
+    repoURL: https://cloudnative-pg.io/charts
+    chart: cluster
+    targetRevision: "0.8.1"
+    helm:
+      values: |
+        cluster:
+          instances: 1
+          storage:
+            size: 8Gi
+            storageClass: local-path
+          initdb:
+            database: metabase
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: data-platform
+  syncPolicy:
+    automated:
+      selfHeal: true
+      prune: true
+    syncOptions:
+      - CreateNamespace=true

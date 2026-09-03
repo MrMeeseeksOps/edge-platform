@@ -1,0 +1,24 @@
+# Installs the CloudNativePG operator (cluster-wide, one per k3s
+# cluster) into cnpg-system. See docs/architecture.md "GitOps (ArgoCD)"
+# for why CloudNativePG over the Bitnami postgresql chart, and the
+# ordering note about postgres-cluster.yaml below.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: postgres-operator
+  namespace: argocd
+spec:
+  project: platform
+  source:
+    repoURL: https://cloudnative-pg.io/charts
+    chart: cloudnative-pg
+    targetRevision: "0.29.0"
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: cnpg-system
+  syncPolicy:
+    automated:
+      selfHeal: true
+      prune: true
+    syncOptions:
+      - CreateNamespace=true

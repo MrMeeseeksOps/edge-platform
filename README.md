@@ -4,8 +4,9 @@ k3s bring-up for a 3-node ARM64 cluster running on UTM VMs on an Apple M1
 MacBook Pro, configured idempotently via Ansible and operated through a
 `Makefile`. The base milestone is **infrastructure bring-up only**: one
 control-plane node and two worker nodes with no application/platform
-workloads. An additive, optional second layer deploys PostgreSQL +
-Metabase on top of that cluster — see
+workloads. An additive, optional second layer deploys ArgoCD on top of
+that cluster, which in turn manages PostgreSQL + Metabase as GitOps
+Applications — see
 [docs/architecture.md](docs/architecture.md) for scope, topology, and
 secrets handling, and [docs/prerequisites.md](docs/prerequisites.md)
 before you start.
@@ -16,8 +17,8 @@ before you start.
 `lumen-cp-01`, `lumen-worker-01`, `lumen-worker-02` — as `Ready`.
 
 **Platform (optional) — done when:** `make platform-healthcheck`
-reports the PostgreSQL cluster healthy and the Metabase deployment
-`Available`.
+reports ArgoCD's server `Available` and the `postgres-operator`,
+`postgres-cluster`, and `metabase` Applications all `Synced`/`Healthy`.
 
 ## Repo layout
 
@@ -29,13 +30,13 @@ ansible/
   inventory/
     hosts.ini                     nodes + IPs — edit this for your VMs
     group_vars/all.yml            non-secret cluster config (k3s version, disabled add-ons, CIDRs)
-    group_vars/platform.yml       non-secret platform config (chart versions, namespaces, ingress host)
+    group_vars/platform.yml       non-secret ArgoCD bootstrap config (chart version, namespace, ingress host)
   playbooks/
     preflight.yml                 SSH/sudo/OS sanity check
     site.yml                      full bring-up: OS prep -> control-plane -> workers
     fetch-kubeconfig.yml          pulls + localizes kubeconfig for remote kubectl
     healthcheck.yml                validates Ready state (the infra milestone gate)
-    platform.yml                  deploys PostgreSQL + Metabase (optional platform layer)
+    platform.yml                  deploys ArgoCD, bootstrapped to manage PostgreSQL + Metabase (optional)
     platform-healthcheck.yml      validates the platform layer (the platform milestone gate)
   roles/
     common/                       OS prep: packages, swap off, sysctl, firewall, hosts file
@@ -43,11 +44,13 @@ ansible/
     k3s_agent/                    installs k3s in agent mode, joins the control-plane
     validate/                     node/pod health assertions used by healthcheck.yml
     helm/                         installs Helm CLI + chart repos, on the control-plane node
-    postgres/                     deploys the CloudNativePG operator + a PostgreSQL Cluster
-    metabase/                     deploys the Metabase Helm chart against that Cluster
-    validate_platform/            PostgreSQL/Metabase health assertions used by platform-healthcheck.yml
+    argocd/                       installs ArgoCD, applies the AppProject + root Application
+    validate_platform/            ArgoCD/Application health assertions used by platform-healthcheck.yml
+argocd/
+  bootstrap/                      AppProject + root "app of apps" Application — applied once, by ansible/roles/argocd
+  apps/                           PostgreSQL + Metabase Applications — ArgoCD-managed; edit + push to change
 docs/
-  architecture.md                 topology, node roles, networking, secrets handling, idempotency
+  architecture.md                 topology, node roles, networking, GitOps layout, secrets handling, idempotency
   prerequisites.md                UTM VM setup, SSH keys, sudo, control-machine tooling
 output/                           gitignored — kubeconfig and other generated artifacts land here
 ```
@@ -74,19 +77,21 @@ e.g. `make cluster ASK_PASS=1`.
 
 ### Platform (optional)
 
-Once the infra milestone is `Ready`, layer PostgreSQL + Metabase on top
-— see
+Once the infra milestone is `Ready`, layer ArgoCD on top — see
 [docs/prerequisites.md](docs/prerequisites.md#8-platform-layer-optional):
 
 ```
-make platform             # idempotent: Helm + PostgreSQL (CloudNativePG) + Metabase
-make platform-healthcheck # milestone gate: asserts PostgreSQL healthy, Metabase Available
+make platform             # idempotent: Helm + ArgoCD, bootstrapped to manage PostgreSQL + Metabase
+make platform-healthcheck # milestone gate: asserts ArgoCD + its Applications are Synced/Healthy
 ```
 
 `make platform` prints the `/etc/hosts` line and URL to reach the
-Metabase UI. See
-[docs/architecture.md](docs/architecture.md#platform-workloads) for
-what gets deployed and why.
+ArgoCD UI (plus how to read its admin password). ArgoCD then
+reconciles PostgreSQL + Metabase from `argocd/apps/` on its own —
+`kubectl -n argocd get applications.argoproj.io` shows progress. See
+[docs/architecture.md](docs/architecture.md#gitops-argocd) for the full
+layout, and how to change PostgreSQL/Metabase config going forward
+(edit `argocd/apps/`, `git push` — not `make platform`).
 
 ## Make targets
 
@@ -102,17 +107,17 @@ Run `make help` for the full list with descriptions.
 | `kubeconfig`          | Fetch + localize kubeconfig to `output/kubeconfig`        |
 | `status`              | `kubectl get nodes -o wide` from the workstation          |
 | `healthcheck`         | Infra milestone gate — asserts all nodes Ready             |
-| `platform`            | Deploy the platform layer: PostgreSQL + Metabase (idempotent) |
-| `platform-healthcheck`| Platform milestone gate — asserts PostgreSQL + Metabase healthy |
+| `platform`            | Deploy the platform layer: ArgoCD, managing PostgreSQL + Metabase (idempotent) |
+| `platform-healthcheck`| Platform milestone gate — asserts ArgoCD + its Applications are Synced/Healthy |
 | `lint`                | `ansible-lint` if installed                                |
 | `clean`               | Remove `output/` (kubeconfig etc.) — does not touch the cluster |
 
 ## Secrets
 
 No secrets are committed to this repository. `output/` (kubeconfig), the
-cluster join token, and the platform layer's PostgreSQL password —
-each written to disk only on the cluster nodes themselves (or held only
-in memory, never in this repo) — are the only sensitive artifacts this
-repo produces — see
+cluster join token, the platform layer's PostgreSQL password, and
+ArgoCD's own initial admin password — each written to disk only on the
+cluster nodes themselves (or held only in memory, never in this repo) —
+are the only sensitive artifacts this repo produces — see
 [docs/architecture.md](docs/architecture.md#secrets-handling) for exactly
 how each is handled.

@@ -1,12 +1,21 @@
 ---
-# Deploys the platform layer (PostgreSQL + Metabase) on top of the
-# already-provisioned k3s cluster (see site.yml). Safe to re-run - each
-# role's Helm releases are idempotent (kubernetes.core.helm diffs
-# against the current release before changing anything).
+# Deploys the platform layer on top of the already-provisioned k3s
+# cluster (see site.yml): ArgoCD, bootstrapped with the AppProject and
+# root "app of apps" Application that hand ongoing management of
+# PostgreSQL + Metabase to ArgoCD itself (argocd/apps/ - see
+# docs/architecture.md "GitOps (ArgoCD)"). Safe to re-run - the Helm
+# release is idempotent (kubernetes.core.helm diffs against the current
+# release before changing anything), and re-applying the same bootstrap
+# manifests is a no-op.
 #
 # Runs entirely against the control-plane node, which already has a
 # local kubeconfig and kubectl (via `k3s kubectl`) - the same node
 # ansible/roles/validate already operates from.
+#
+# This playbook does NOT deploy PostgreSQL/Metabase directly (it used
+# to, via dedicated Ansible roles) - once ArgoCD is bootstrapped, those
+# are managed by editing argocd/apps/ and pushing to git, not by
+# re-running this playbook.
 
 - name: Install Helm and chart repositories
   hosts: k3s_server
@@ -17,33 +26,28 @@
   roles:
     - helm
 
-- name: Deploy PostgreSQL (CloudNativePG)
+- name: Deploy ArgoCD
   hosts: k3s_server
   become: true
-  tags: [postgres]
+  tags: [argocd]
   vars_files:
     - ../inventory/group_vars/platform.yml
   roles:
-    - postgres
-
-- name: Deploy Metabase
-  hosts: k3s_server
-  become: true
-  tags: [metabase]
-  vars_files:
-    - ../inventory/group_vars/platform.yml
-  roles:
-    - metabase
+    - argocd
 
 - name: Print access instructions
   hosts: k3s_server
-  tags: [metabase]
+  tags: [argocd]
   vars_files:
     - ../inventory/group_vars/platform.yml
   tasks:
-    - name: Show Metabase access instructions
+    - name: Show ArgoCD access instructions
       ansible.builtin.debug:
         msg:
           - "Add this line to your workstation's /etc/hosts:"
-          - "  {{ ansible_host }} {{ metabase_ingress_host }}"
-          - "Then browse: http://{{ metabase_ingress_host }}/"
+          - "  {{ ansible_host }} {{ argocd_ingress_host }}"
+          - "Then browse: http://{{ argocd_ingress_host }}/"
+          - "Log in as 'admin' with the auto-generated password:"
+          - "  kubectl -n {{ argocd_namespace }} get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d"
+          - "ArgoCD will reconcile PostgreSQL + Metabase from argocd/apps/ on its own within a few minutes - check progress with:"
+          - "  kubectl -n {{ argocd_namespace }} get applications.argoproj.io"

@@ -54,11 +54,11 @@ healthcheck: ## Verify all nodes are Ready and core pods are healthy
 	$(ANSIBLE_PLAYBOOK) $(ANSIBLE_DIR)/playbooks/healthcheck.yml
 
 .PHONY: platform
-platform: ## Deploy the platform layer: PostgreSQL + Metabase (idempotent)
+platform: ## Deploy the platform layer: ArgoCD, managing PostgreSQL + Metabase (idempotent)
 	$(ANSIBLE_PLAYBOOK) $(ANSIBLE_DIR)/playbooks/platform.yml
 
 .PHONY: platform-healthcheck
-platform-healthcheck: ## Verify PostgreSQL + Metabase are healthy
+platform-healthcheck: ## Verify ArgoCD + its Applications are Synced/Healthy
 	$(ANSIBLE_PLAYBOOK) $(ANSIBLE_DIR)/playbooks/platform-healthcheck.yml
 
 .PHONY: status

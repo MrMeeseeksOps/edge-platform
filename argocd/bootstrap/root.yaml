@@ -1,0 +1,28 @@
+# The "app of apps" root Application. This is the only Application
+# ansible/roles/argocd applies directly (kubernetes.core.k8s, alongside
+# project.yaml) - it points at argocd/apps/ in this same repo, and
+# ArgoCD discovers the Applications defined there on its own. To add,
+# remove, or change a platform workload, edit argocd/apps/ and push;
+# you don't need to touch this file or re-run `make platform`.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: root
+  namespace: argocd
+spec:
+  project: platform
+  source:
+    repoURL: https://github.com/MrMeeseeksOps/edge-platform.git
+    targetRevision: main
+    path: argocd/apps
+    directory:
+      recurse: true
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      selfHeal: true
+      prune: true
+    syncOptions:
+      - CreateNamespace=true

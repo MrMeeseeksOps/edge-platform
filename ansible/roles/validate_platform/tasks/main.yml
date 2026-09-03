@@ -1,40 +1,53 @@
 ---
 # Platform-layer health validation, run from the control-plane node
 # using k3s's built-in kubectl - mirrors ansible/roles/validate, but for
-# the PostgreSQL + Metabase workloads instead of node-level cluster
+# the ArgoCD-managed platform layer instead of node-level cluster
 # health. This is the milestone gate for the platform layer.
 #
-# The deployment name below follows the pmint93/metabase chart's
-# standard naming ("<release>"); if a future chart version changes this,
-# `kubectl get deploy -n {{ platform_namespace }}` will show the actual
-# name to update here.
+# Checks ArgoCD's own server deployment, then each platform Application
+# ArgoCD manages (argocd/apps/) for Synced + Healthy status - this
+# rolls up the underlying resources' own health (e.g. Metabase's
+# Deployment Available condition) without re-implementing bespoke
+# per-resource assertions here, the way the old Dagster/PostgreSQL
+# checks used to.
+#
+# Deployment name below ("argocd-server") follows the argo-cd chart's
+# fullname template: since Release.Name ("{{ argocd_release_name }}")
+# already contains nameOverride ("argocd", set by the chart itself),
+# the fullname collapses to just the release name rather than
+# "<release>-argo-cd" - `kubectl get deploy -n {{ argocd_namespace }}`
+# will show the actual name if a future chart version changes this.
 
-- name: Check PostgreSQL cluster status
+- name: Check ArgoCD server deployment status
   ansible.builtin.command: >-
-    k3s kubectl -n {{ platform_namespace }} get
-    clusters.postgresql.cnpg.io {{ postgres_cluster_resource_name }}
-    -o jsonpath='{.status.phase}'
-  register: postgres_phase
-  changed_when: false
-
-- name: Assert PostgreSQL cluster is healthy
-  ansible.builtin.assert:
-    that:
-      - "'Cluster in healthy state' in postgres_phase.stdout"
-    fail_msg: "PostgreSQL cluster {{ postgres_cluster_resource_name }} is not healthy: {{ postgres_phase.stdout }}"
-    success_msg: "PostgreSQL cluster {{ postgres_cluster_resource_name }} is healthy."
-
-- name: Check Metabase deployment status
-  ansible.builtin.command: >-
-    k3s kubectl -n {{ platform_namespace }} get deployment
-    {{ metabase_release_name }}
+    k3s kubectl -n {{ argocd_namespace }} get deployment
+    {{ argocd_release_name }}-server
     -o jsonpath='{.status.conditions[?(@.type=="Available")].status}'
-  register: metabase_available
+  register: argocd_server_available
   changed_when: false
 
-- name: Assert Metabase is available
+- name: Assert ArgoCD server is available
   ansible.builtin.assert:
     that:
-      - "'True' in metabase_available.stdout"
-    fail_msg: "Metabase deployment is not Available."
-    success_msg: "Metabase is Available."
+      - "'True' in argocd_server_available.stdout"
+    fail_msg: "ArgoCD server deployment is not Available."
+    success_msg: "ArgoCD server is Available."
+
+- name: Check platform Application sync/health status
+  ansible.builtin.command: >-
+    k3s kubectl -n {{ argocd_namespace }} get applications.argoproj.io {{ item }}
+    -o jsonpath='{.status.sync.status} {.status.health.status}'
+  register: platform_apps
+  changed_when: false
+  loop:
+    - postgres-operator
+    - postgres-cluster
+    - metabase
+
+- name: Assert each platform Application is Synced and Healthy
+  ansible.builtin.assert:
+    that:
+      - "'Synced Healthy' in item.stdout"
+    fail_msg: "{{ item.item }} is not Synced/Healthy: {{ item.stdout }}"
+    success_msg: "{{ item.item }} is Synced and Healthy."
+  loop: "{{ platform_apps.results }}"

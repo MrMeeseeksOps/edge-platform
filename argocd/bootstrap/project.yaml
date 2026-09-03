@@ -1,0 +1,37 @@
+# AppProject scoping what the platform layer's Applications are allowed
+# to source from and deploy to. Applied once by ansible/roles/argocd;
+# from then on this file, like everything else under argocd/, is
+# reconciled by editing it and pushing to git - see
+# docs/architecture.md "GitOps (ArgoCD)".
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: platform
+  namespace: argocd
+spec:
+  description: PostgreSQL (CloudNativePG) + Metabase platform workloads
+  sourceRepos:
+    - https://cloudnative-pg.io/charts
+    - https://pmint93.github.io/helm-charts
+    - https://github.com/MrMeeseeksOps/edge-platform.git
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: cnpg-system
+    - server: https://kubernetes.default.svc
+      namespace: data-platform
+  # Enumerated rather than wildcarded: this is everything the
+  # cnpg/cloudnative-pg chart actually creates at cluster scope
+  # (operator CRDs, RBAC, admission webhooks, and its own namespace).
+  clusterResourceWhitelist:
+    - group: ""
+      kind: Namespace
+    - group: apiextensions.k8s.io
+      kind: CustomResourceDefinition
+    - group: rbac.authorization.k8s.io
+      kind: ClusterRole
+    - group: rbac.authorization.k8s.io
+      kind: ClusterRoleBinding
+    - group: admissionregistration.k8s.io
+      kind: MutatingWebhookConfiguration
+    - group: admissionregistration.k8s.io
+      kind: ValidatingWebhookConfiguration

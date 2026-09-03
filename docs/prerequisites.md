@@ -109,12 +109,16 @@ reports before running `make cluster`.
 
 ## 8. Platform layer (optional)
 
-Once `make healthcheck` passes, `make platform` deploys PostgreSQL +
-Metabase (see
-[docs/architecture.md](architecture.md#platform-workloads)). Helm
-itself is installed automatically onto the control-plane node, the same
-way k3s is, and Metabase's image is pulled directly from Docker Hub on
-each node — no extra tooling is required on the control machine beyond
-what's already listed in step 5. After `make platform` finishes, add
-the `/etc/hosts` line it prints (mapping `metabase_ingress_host` to a
-node IP) to reach the Metabase UI in a browser.
+Once `make healthcheck` passes, `make platform` deploys ArgoCD, which
+in turn takes over deploying PostgreSQL + Metabase from a bootstrap
+Application pointed at this repo (see
+[docs/architecture.md](architecture.md#gitops-argocd)). Helm itself is
+installed automatically onto the control-plane node, the same way k3s
+is, and every image involved (ArgoCD, CloudNativePG, Metabase) is
+multi-arch and pulled directly from its registry on each node — no
+extra tooling is required on the control machine beyond what's already
+listed in step 5. After `make platform` finishes, add the `/etc/hosts`
+line it prints (mapping `argocd_ingress_host` to a node IP) to reach
+the ArgoCD UI, and give ArgoCD a few minutes to reconcile PostgreSQL +
+Metabase on its own — `kubectl -n argocd get applications.argoproj.io`
+shows progress (or `make platform-healthcheck` once everything settles).

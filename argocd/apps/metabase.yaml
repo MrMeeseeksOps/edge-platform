@@ -1,0 +1,40 @@
+# Deploys Metabase, pointed at the CloudNativePG-backed database from
+# postgres-cluster.yaml. database.existingSecret points straight at the
+# CNPG-generated "platform-postgres-cluster-app" Secret and lets the
+# pod read its own credentials directly - ArgoCD never sees the
+# password. See docs/architecture.md "Secrets handling".
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: metabase
+  namespace: argocd
+spec:
+  project: platform
+  source:
+    repoURL: https://pmint93.github.io/helm-charts
+    chart: metabase
+    targetRevision: "2.27.6"
+    helm:
+      values: |
+        database:
+          type: postgres
+          existingSecret: platform-postgres-cluster-app
+          existingSecretUsernameKey: username
+          existingSecretPasswordKey: password
+          existingSecretHostKey: host
+          existingSecretPortKey: port
+          existingSecretDatabaseNameKey: dbname
+        ingress:
+          enabled: true
+          className: traefik
+          hosts:
+            - metabase.lumen.local
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: data-platform
+  syncPolicy:
+    automated:
+      selfHeal: true
+      prune: true
+    syncOptions:
+      - CreateNamespace=true
