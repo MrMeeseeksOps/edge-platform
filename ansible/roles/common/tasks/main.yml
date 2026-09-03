@@ -90,6 +90,10 @@
     port: "{{ item }}"
     proto: "{{ 'udp' if item == '8472' else 'tcp' }}"
   loop:
+    - "22"      # SSH - required for Ansible itself to keep reaching the node;
+                # without this, UFW becoming active with no prior "OpenSSH"
+                # allow rule locks Ansible out over SSH (see docs/architecture.md
+                # "Networking")
     - "6443"    # k3s / Kubernetes API
     - "2379"    # etcd client (embedded HA, unused in single-server but harmless)
     - "2380"    # etcd peer
