@@ -16,6 +16,17 @@
 # (Traefik ingress is plain HTTP throughout, same as the Metabase
 # ingress) - ArgoCD serves its UI/API over HTTP rather than
 # self-signed HTTPS behind the Ingress.
+#
+# repoServer/server probe overrides: the chart's defaults
+# (readinessProbe/livenessProbe timeoutSeconds: 1, startupProbe
+# disabled) assume a fast host. On a resource-constrained edge VM the
+# CPU burst from generating a TLS cert + GPG keyring at startup can
+# push a health-check response past 1s, and with no startup probe grace
+# period the liveness probe kills the container almost immediately -
+# observed in practice as argocd-repo-server stuck in CrashLoopBackOff
+# on first install. Enabling startupProbe (20 failures x 10s = up to
+# 200s grace before liveness probing even begins) and loosening the
+# steady-state timeout fixes this without masking a real hang.
 
 - name: Deploy ArgoCD
   kubernetes.core.helm:
@@ -26,7 +37,12 @@
     create_namespace: true
     kubeconfig: /etc/rancher/k3s/k3s.yaml
     wait: true
-    wait_timeout: 5m
+    # Longer than the 5m used elsewhere in this repo (CNPG operator,
+    # Metabase): the argo-cd chart brings up ~6 components (server,
+    # repo-server, application-controller, applicationset-controller,
+    # notifications-controller, redis) and a cold first-time image pull
+    # for all of them can exceed 5m on a resource-constrained edge VM.
+    wait_timeout: 10m
     values:
       configs:
         params:
@@ -36,6 +52,19 @@
           enabled: true
           ingressClassName: "{{ argocd_ingress_class }}"
           hostname: "{{ argocd_ingress_host }}"
+        startupProbe:
+          enabled: true
+        readinessProbe:
+          timeoutSeconds: 5
+        livenessProbe:
+          timeoutSeconds: 5
+      repoServer:
+        startupProbe:
+          enabled: true
+        readinessProbe:
+          timeoutSeconds: 5
+        livenessProbe:
+          timeoutSeconds: 5
 
 - name: Wait for the Argo CD Application/AppProject CRDs to be established
   ansible.builtin.command: >-
