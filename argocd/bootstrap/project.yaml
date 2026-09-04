@@ -16,6 +16,8 @@ spec:
     - https://github.com/MrMeeseeksOps/edge-platform.git
   destinations:
     - server: https://kubernetes.default.svc
+      namespace: argocd
+    - server: https://kubernetes.default.svc
       namespace: cnpg-system
     - server: https://kubernetes.default.svc
       namespace: data-platform
