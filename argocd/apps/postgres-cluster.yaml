@@ -15,6 +15,13 @@
 # pod crash-loops until the Secret exists, then self-heals - but is
 # worth knowing if you're watching `argocd app list` right after
 # bootstrap and Metabase isn't Healthy yet.
+#
+# monitoring.enabled creates a PodMonitor for this Cluster's metrics
+# endpoint (see argocd/apps/monitoring.yaml for the CloudNativePG
+# Grafana dashboard that reads it). Same ordering caveat applies in
+# reverse: the PodMonitor CRD only exists once monitoring.yaml has
+# synced, so if this Application syncs first that one resource fails
+# once and selfHeal retries it automatically - no action needed.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -35,6 +42,8 @@ spec:
             storageClass: local-path
           initdb:
             database: metabase
+          monitoring:
+            enabled: true
   destination:
     server: https://kubernetes.default.svc
     namespace: data-platform

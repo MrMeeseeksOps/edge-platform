@@ -48,7 +48,7 @@ ansible/
     validate_platform/            ArgoCD/Application health assertions used by platform-healthcheck.yml
 argocd/
   bootstrap/                      AppProject + root "app of apps" Application — applied once, by ansible/roles/argocd
-  apps/                           PostgreSQL + Metabase Applications — ArgoCD-managed; edit + push to change
+  apps/                           PostgreSQL + Metabase + monitoring Applications — ArgoCD-managed; edit + push to change
 docs/
   architecture.md                 topology, node roles, networking, GitOps layout, secrets handling, idempotency
   prerequisites.md                UTM VM setup, SSH keys, sudo, control-machine tooling

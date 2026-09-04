@@ -43,6 +43,7 @@
     - postgres-operator
     - postgres-cluster
     - metabase
+    - monitoring
 
 - name: Assert each platform Application is Synced and Healthy
   ansible.builtin.assert:

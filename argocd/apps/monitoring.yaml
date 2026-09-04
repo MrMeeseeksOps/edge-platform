@@ -1,0 +1,82 @@
+# Deploys kube-prometheus-stack (Prometheus + Grafana + kube-state-metrics
+# + node-exporter + the Prometheus Operator) for cluster and PostgreSQL
+# observability. See docs/architecture.md "GitOps (ArgoCD)" for the full
+# rationale; summary:
+#
+# - alertmanager.enabled: false - no notification channel (Slack/email/
+#   etc.) is configured yet, so there's nowhere for it to route alerts.
+#   Alerting rules still evaluate and are visible in Prometheus/Grafana
+#   either way; this is a one-line flip to re-enable later.
+# - Every component below gets an explicit resources.requests but no
+#   limits - the chart ships all of them with resources: {} (nothing
+#   set) by default, sized for typical cloud nodes. Explicit requests
+#   give the scheduler a sane floor on this cluster's 2-6GB edge VMs;
+#   deliberately no limits, to avoid a repeat of the ArgoCD repo-server
+#   throttling issue (see argocd role) - let bursts through rather than
+#   risk starving a health check during startup.
+# - grafana.dashboards.default.cloudnativepg pulls the official CNPG
+#   dashboard (grafana.com id 20417) at Grafana startup rather than
+#   committing its JSON here. The standard Kubernetes/Node Exporter
+#   dashboards ship automatically via defaultDashboardsEnabled (chart
+#   default, not overridden here).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: monitoring
+  namespace: argocd
+spec:
+  project: platform
+  source:
+    repoURL: https://prometheus-community.github.io/helm-charts
+    chart: kube-prometheus-stack
+    targetRevision: "88.6.3"
+    helm:
+      values: |
+        alertmanager:
+          enabled: false
+        grafana:
+          ingress:
+            enabled: true
+            ingressClassName: traefik
+            hosts:
+              - grafana.lumen.local
+          dashboards:
+            default:
+              cloudnativepg:
+                gnetId: 20417
+                revision: 4
+                datasource: Prometheus
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+        prometheusOperator:
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+        prometheus:
+          prometheusSpec:
+            resources:
+              requests:
+                cpu: 100m
+                memory: 256Mi
+        kubeStateMetrics:
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+        nodeExporter:
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+  syncPolicy:
+    automated:
+      selfHeal: true
+      prune: true
+    syncOptions:
+      - CreateNamespace=true

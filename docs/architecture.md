@@ -123,6 +123,7 @@ argocd/
     postgres-operator.yaml   # cnpg/cloudnative-pg chart -> cnpg-system
     postgres-cluster.yaml    # cnpg/cluster chart -> data-platform (database "metabase")
     metabase.yaml             # pmint93/metabase chart -> data-platform
+    monitoring.yaml           # prometheus-community/kube-prometheus-stack chart -> monitoring
 ```
 
 `ansible/roles/argocd` installs ArgoCD via its official Helm chart, then
@@ -130,7 +131,7 @@ applies `argocd/bootstrap/project.yaml` and `argocd/bootstrap/root.yaml`
 with `k3s kubectl apply -f` (once each, idempotent). `root.yaml` is an
 ["app of apps"](https://argo-cd.readthedocs.io/en/stable/operator-manual/cluster-bootstrapping/)
 Application pointed at `argocd/apps/` in this same repo; ArgoCD
-discovers the three child Applications there on its own — Ansible never
+discovers the four child Applications there on its own — Ansible never
 touches them directly.
 
 | Namespace       | What                                                                                                                                                                     |
@@ -138,6 +139,7 @@ touches them directly.
 | `argocd`        | ArgoCD itself                                                                                                                                                            |
 | `cnpg-system`   | [CloudNativePG](https://cloudnative-pg.io) operator (cluster-wide), as the `postgres-operator` Application                                                              |
 | `data-platform` | A single-instance CloudNativePG `Cluster` (database `metabase`, `local-path` storage) as `postgres-cluster`, and Metabase as `metabase`, configured to use that Cluster as its application database |
+| `monitoring`    | Prometheus + Grafana + kube-state-metrics + node-exporter (`kube-prometheus-stack`), as the `monitoring` Application - see "Monitoring" below                          |
 
 **Changed workflow:** to bump a chart version or change a value for
 PostgreSQL or Metabase, edit the corresponding file under `argocd/apps/`
@@ -146,7 +148,7 @@ default) or immediately via `argocd app sync <name>` / the UI.
 `make platform` is no longer how you change these two; it's only how
 you (re)install ArgoCD itself.
 
-**Sync policy:** all four Applications (`root` + the three children) use
+**Sync policy:** all five Applications (`root` + the four children) use
 `syncPolicy.automated: {selfHeal: true, prune: true}` — ArgoCD both
 auto-applies git changes and reverts drift, including manual `kubectl
 edit`/`helm upgrade` against these resources. This is fully hands-off
@@ -202,6 +204,62 @@ host — `make platform` prints the exact `/etc/hosts` line for ArgoCD.
 same as any other PVC on this cluster. This ties data durability to
 whichever node the pod lands on — acceptable for a single-instance edge
 lab, not a substitute for backups.
+
+### Monitoring
+
+`argocd/apps/monitoring.yaml` deploys
+[`kube-prometheus-stack`](https://github.com/prometheus-community/helm-charts/tree/main/charts/kube-prometheus-stack)
+(Prometheus, Grafana, kube-state-metrics, node-exporter, and the
+Prometheus Operator) into the `monitoring` namespace, covering both
+general k3s cluster/node resource usage and the CloudNativePG cluster
+specifically.
+
+**Alertmanager is disabled** (`alertmanager.enabled: false`): no
+notification channel (Slack, email, a webhook) is configured yet, so
+there'd be nowhere for it to route a firing alert. This doesn't affect
+metric collection or dashboards at all — Prometheus's alerting rules
+still evaluate and their state is visible in the Prometheus/Grafana UI
+either way. Flip it back on (one line) once you have somewhere to send
+notifications.
+
+**Resource requests, deliberately no limits:** the chart ships every
+component with `resources: {}` (nothing set) by default, sized for
+typical cloud nodes. `monitoring.yaml` sets explicit `resources.requests`
+for Prometheus, Grafana, kube-state-metrics, and node-exporter, so the
+scheduler has a sane floor to place them against on this cluster's
+2-6GB edge VMs — but no `limits`, the same reasoning as the ArgoCD
+repo-server probe fix above (see `ansible/roles/argocd`): a hard CPU
+limit risks throttling a component during a startup burst badly enough
+that it fails its own health check and gets killed. Better to let
+bursts through on a cluster with headroom (`kubectl top nodes`) than
+risk that again.
+
+**Dashboards:** the standard "Kubernetes / Compute Resources" and
+"Node Exporter" dashboard set ships automatically
+(`defaultDashboardsEnabled: true`, the chart default - not overridden
+here) and covers general k3s cluster/node monitoring out of the box.
+For PostgreSQL, `grafana.dashboards.default.cloudnativepg` pulls the
+official [CloudNativePG dashboard](https://grafana.com/grafana/dashboards/20417-cloudnativepg/)
+(grafana.com id `20417`) at Grafana startup, rather than committing its
+JSON to this repo.
+
+**PostgreSQL metrics wiring:** `argocd/apps/postgres-cluster.yaml` sets
+`cluster.monitoring.enabled: true`, which makes the `cnpg/cluster` chart
+create a `PodMonitor` for the Cluster's metrics endpoint - that's what
+the CloudNativePG dashboard above actually reads. Same ordering caveat
+as the Metabase/Postgres one further up, just in the other direction:
+the `PodMonitor` Custom Resource type only exists once `monitoring.yaml`
+has synced and installed the Prometheus Operator CRDs, so if
+`postgres-cluster` happens to sync first, that one resource fails once
+and ArgoCD's `selfHeal` retries it automatically — no action needed.
+
+**Ingress:** Grafana is exposed the same way as ArgoCD/Metabase, over
+plain HTTP via Traefik at `grafana.lumen.local` (a literal in
+`argocd/apps/monitoring.yaml`). Grafana's admin credentials are
+auto-generated by the chart into a Secret the same way ArgoCD's are:
+`kubectl -n monitoring get secret monitoring-grafana -o
+jsonpath='{.data.admin-password}' | base64 -d` (username is `admin`
+unless overridden).
 
 ## Secrets handling
 

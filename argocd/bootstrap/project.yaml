@@ -9,10 +9,11 @@ metadata:
   name: platform
   namespace: argocd
 spec:
-  description: PostgreSQL (CloudNativePG) + Metabase platform workloads
+  description: PostgreSQL (CloudNativePG) + Metabase + monitoring platform workloads
   sourceRepos:
     - https://cloudnative-pg.io/charts
     - https://pmint93.github.io/helm-charts
+    - https://prometheus-community.github.io/helm-charts
     - https://github.com/MrMeeseeksOps/edge-platform.git
   destinations:
     - server: https://kubernetes.default.svc
@@ -21,6 +22,8 @@ spec:
       namespace: cnpg-system
     - server: https://kubernetes.default.svc
       namespace: data-platform
+    - server: https://kubernetes.default.svc
+      namespace: monitoring
   # Enumerated rather than wildcarded: this is everything the
   # cnpg/cloudnative-pg chart actually creates at cluster scope
   # (operator CRDs, RBAC, admission webhooks, and its own namespace).
